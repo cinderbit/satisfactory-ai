@@ -145,6 +145,42 @@ class FRMClient:
                     items.append(StorageItem(item_class=ic, amount=amt))
         return items
 
+    def placed_buildings(self) -> list[dict]:
+        """Return all buildable actors FRM knows about.
+
+        Used to infer unlocked tiers from what's already built in the world.
+        FRM endpoint: /frm/factory (returns all production buildings).
+        Field names are best-effort — verify against your FRM version.
+        """
+        try:
+            return self._get("/frm/factory") or []
+        except Exception:
+            return []
+
+    def detect_miner_tier(self) -> int:
+        """Scan placed buildings to find the highest miner tier in the world.
+
+        Class name patterns (Unreal):
+          Mk1: Build_MinerMk1_C
+          Mk2: Build_MinerMk2_C
+          Mk3: Build_MinerMk3_C
+
+        Returns 1, 2, or 3.  Falls back to 1 if nothing is found (safest
+        assumption — never suggests a machine the player might not have).
+        """
+        buildings = self.placed_buildings()
+        highest = 1
+        for b in buildings:
+            cls = (
+                b.get("ClassName") or b.get("className") or
+                b.get("BuildingType") or b.get("building_type") or ""
+            )
+            if "MinerMk3" in cls or "Miner_Mk3" in cls:
+                return 3
+            if "MinerMk2" in cls or "Miner_Mk2" in cls:
+                highest = max(highest, 2)
+        return highest
+
 
 class DedicatedServerClient:
     """Client for the official Satisfactory dedicated-server API (:7777/api/v1/).

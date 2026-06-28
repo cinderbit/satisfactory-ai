@@ -189,7 +189,7 @@ def run_advisor(
     frm_host: Optional[str],
     frm_port: int,
     prefer_alternate: set[str],
-    miner_tier: int = 3,
+    miner_tier: Optional[int] = None,
     non_interactive: bool = False,
 ) -> None:
     print(f"\n[Advisor] Parsing: {command!r}")
@@ -240,6 +240,14 @@ def run_advisor(
             print(f"\n[Advisor] FRM reachable at {frm_host}:{frm_port}. Querying nodes ...")
             frm = FRMClient(frm_host, frm_port)
             try:
+                # Auto-detect miner tier from placed buildings if not overridden
+                effective_tier = miner_tier
+                if effective_tier is None:
+                    effective_tier = frm.detect_miner_tier()
+                    print(f"          Auto-detected highest miner tier: Mk{effective_tier}")
+                else:
+                    print(f"          Using specified miner tier: Mk{effective_tier}")
+
                 nodes = frm.resource_nodes()
                 print(f"          {len(nodes)} nodes found.")
                 site = find_site(
@@ -253,7 +261,7 @@ def run_advisor(
                 # Miner planning: use only nodes near the chosen site
                 site_nodes = site.assignments  # nodes already selected for this site
                 nearby_nodes = [a.node for a in site_nodes]
-                miner_plan = plan_miners(result.bom, nearby_nodes, miner_tier=miner_tier)
+                miner_plan = plan_miners(result.bom, nearby_nodes, miner_tier=effective_tier)
                 print("\n" + format_miner_plan(miner_plan, result.bom))
             except Exception as e:
                 print(f"[Warning] FRM query failed: {e}")
@@ -262,6 +270,8 @@ def run_advisor(
     else:
         print("\n[Advisor] No --frm-host provided. Siting + miner planning skipped.")
         print("          Supply --frm-host to get node assignments and miner clock speeds.")
+        if miner_tier is None:
+            print("          Miner tier will be auto-detected from FRM when connected.")
 
     # Approval gate
     print("\n" + "=" * 60)
@@ -315,9 +325,9 @@ def main() -> None:
                         help="FRM HTTP port (default 8080)")
     parser.add_argument("--alternate", metavar="CLASS", action="append", default=[],
                         help="Prefer this alternate recipe class (repeatable)")
-    parser.add_argument("--miner-tier", type=int, default=3, choices=[1, 2, 3],
+    parser.add_argument("--miner-tier", type=int, default=None, choices=[1, 2, 3],
                         metavar="TIER",
-                        help="Highest unlocked miner tier (1/2/3, default 3)")
+                        help="Override miner tier (1/2/3). Default: auto-detected from FRM.")
     parser.add_argument("--yes", action="store_true",
                         help="Non-interactive: auto-approve and print tokens")
     args = parser.parse_args()
