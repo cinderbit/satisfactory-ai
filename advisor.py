@@ -33,6 +33,7 @@ from recipe_planner import load_recipes, plan, format_plan, PlanResult
 from factory_geometry import MACHINE_CONFIG, row_footprint, port_variant_index
 from world_state import FRMClient, availability_check
 from siting import find_site, format_site, SiteReport
+from miner_planner import plan_miners, format_miner_plan, MinerPlan
 
 # ---------------------------------------------------------------------------
 # Natural-language parse: item name + rate
@@ -144,9 +145,23 @@ def parse_command(text: str) -> tuple[str, float]:
 # Token-row formatting (the contract boundary with the mod)
 # ---------------------------------------------------------------------------
 
-def format_tokens(result: PlanResult) -> str:
+def format_tokens(result: PlanResult, miner_plan: Optional[MinerPlan] = None) -> str:
     """Format token rows as JSON — ready for the mod's HTTP endpoint."""
     tokens = []
+
+    # Miner / extractor tokens first (inputs before processors)
+    if miner_plan:
+        for a in miner_plan.assignments:
+            tokens.append({
+                "machineType": a.extractor_type,
+                "minerTier":   a.miner_tier,
+                "item":        a.item_class,
+                "clockSpeed":  a.clock_pct,
+                "nodeX":       a.node.x,
+                "nodeY":       a.node.y,
+                "nodeZ":       a.node.z,
+            })
+
     for row in result.token_rows:
         tokens.append({
             "count":       row.count,
@@ -174,6 +189,7 @@ def run_advisor(
     frm_host: Optional[str],
     frm_port: int,
     prefer_alternate: set[str],
+    miner_tier: int = 3,
     non_interactive: bool = False,
 ) -> None:
     print(f"\n[Advisor] Parsing: {command!r}")
@@ -215,8 +231,9 @@ def run_advisor(
 
     print(f"\n  Est. total footprint: ~{total_w/100:.0f}m wide x {total_l/100:.0f}m deep")
 
-    # Siting (optional — needs FRM)
+    # Siting + miner planning (optional — needs FRM)
     site: Optional[SiteReport] = None
+    miner_plan: Optional[MinerPlan] = None
     if frm_host:
         avail = availability_check(frm_host, frm_port)
         if avail.get("frm"):
@@ -232,12 +249,19 @@ def run_advisor(
                     footprint_length_uu=float(total_l),
                 )
                 print("\n" + format_site(site))
+
+                # Miner planning: use only nodes near the chosen site
+                site_nodes = site.assignments  # nodes already selected for this site
+                nearby_nodes = [a.node for a in site_nodes]
+                miner_plan = plan_miners(result.bom, nearby_nodes, miner_tier=miner_tier)
+                print("\n" + format_miner_plan(miner_plan, result.bom))
             except Exception as e:
                 print(f"[Warning] FRM query failed: {e}")
         else:
             print(f"[Warning] FRM not reachable at {frm_host}:{frm_port}. Siting skipped.")
     else:
-        print("\n[Advisor] No --frm-host provided. Siting skipped (supply --frm-host for node search).")
+        print("\n[Advisor] No --frm-host provided. Siting + miner planning skipped.")
+        print("          Supply --frm-host to get node assignments and miner clock speeds.")
 
     # Approval gate
     print("\n" + "=" * 60)
@@ -263,12 +287,12 @@ def run_advisor(
 
     if answer.startswith("m"):
         new_cmd = input("New command: ").strip()
-        run_advisor(new_cmd, recipes_path, frm_host, frm_port, prefer_alternate)
+        run_advisor(new_cmd, recipes_path, frm_host, frm_port, prefer_alternate, miner_tier)
         return
 
     # Approved — emit tokens
     print("\n[Advisor] APPROVED. Token rows (JSON):\n")
-    print(format_tokens(result))
+    print(format_tokens(result, miner_plan))
     print("\nFactorySpawner command (paste in-game chat):\n")
     print(format_spawner_command(result))
     print()
@@ -291,6 +315,9 @@ def main() -> None:
                         help="FRM HTTP port (default 8080)")
     parser.add_argument("--alternate", metavar="CLASS", action="append", default=[],
                         help="Prefer this alternate recipe class (repeatable)")
+    parser.add_argument("--miner-tier", type=int, default=3, choices=[1, 2, 3],
+                        metavar="TIER",
+                        help="Highest unlocked miner tier (1/2/3, default 3)")
     parser.add_argument("--yes", action="store_true",
                         help="Non-interactive: auto-approve and print tokens")
     args = parser.parse_args()
@@ -309,6 +336,7 @@ def main() -> None:
         frm_host=args.frm_host,
         frm_port=args.frm_port,
         prefer_alternate=set(args.alternate),
+        miner_tier=args.miner_tier,
         non_interactive=args.yes,
     )
 
