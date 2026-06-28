@@ -50,6 +50,23 @@ class ResourceNode:
 
 
 @dataclass
+class RadarTower:
+    x: float
+    y: float
+    z: float
+    scan_radius: float   # uu — default 150000 (≈1500m); verify against your build
+
+
+@dataclass
+class PlacedExtractor:
+    """A miner or extractor already built in the world."""
+    class_name: str      # e.g. "Build_MinerMk3_C"
+    x: float
+    y: float
+    z: float
+
+
+@dataclass
 class StorageItem:
     item_class: str
     amount: float        # normalized (fluids already ÷1000 if needed)
@@ -145,6 +162,52 @@ class FRMClient:
                     items.append(StorageItem(item_class=ic, amount=amt))
         return items
 
+    def radar_towers(self, default_radius: float = 150_000.0) -> list[RadarTower]:
+        """Return all radar towers placed in the world.
+
+        Radar tower scan radius in Satisfactory is approximately 1500m (150,000 uu).
+        Verify this against your build — the radius may differ by version.
+        FRM endpoint: /frm/radartower (verify field names against your version).
+        """
+        try:
+            raw = self._get("/frm/radartower")
+        except Exception:
+            return []
+        towers: list[RadarTower] = []
+        for entry in raw:
+            loc = entry.get("location") or entry.get("Location") or {}
+            x = float(loc.get("x", loc.get("X", 0)))
+            y = float(loc.get("y", loc.get("Y", 0)))
+            z = float(loc.get("z", loc.get("Z", 0)))
+            radius = float(
+                entry.get("ScanRadius") or entry.get("scan_radius") or default_radius
+            )
+            towers.append(RadarTower(x=x, y=y, z=z, scan_radius=radius))
+        return towers
+
+    def placed_extractors(self) -> list[PlacedExtractor]:
+        """Return all miners and extractors already built in the world.
+
+        Used to identify nodes that have been found and developed, and to
+        infer the highest unlocked miner tier.
+        """
+        buildings = self.placed_buildings()
+        extractors: list[PlacedExtractor] = []
+        extractor_keywords = ("Miner", "WaterExtractor", "ResourceExtractor",
+                              "OilPump", "FrackingExtractor")
+        for b in buildings:
+            cls = (
+                b.get("ClassName") or b.get("className") or
+                b.get("BuildingType") or b.get("building_type") or ""
+            )
+            if any(k in cls for k in extractor_keywords):
+                loc = b.get("location") or b.get("Location") or {}
+                x = float(loc.get("x", loc.get("X", 0)))
+                y = float(loc.get("y", loc.get("Y", 0)))
+                z = float(loc.get("z", loc.get("Z", 0)))
+                extractors.append(PlacedExtractor(class_name=cls, x=x, y=y, z=z))
+        return extractors
+
     def placed_buildings(self) -> list[dict]:
         """Return all buildable actors FRM knows about.
 
@@ -223,6 +286,44 @@ class DedicatedServerClient:
             return True
         except Exception:
             return False
+
+
+def _dist2d(ax: float, ay: float, bx: float, by: float) -> float:
+    return ((ax - bx) ** 2 + (ay - by) ** 2) ** 0.5
+
+
+def discovered_nodes(
+    all_nodes: list[ResourceNode],
+    extractors: list[PlacedExtractor],
+    towers: list[RadarTower],
+    extractor_snap_radius: float = 1_000.0,   # uu — a miner placed "on" a node
+) -> list[ResourceNode]:
+    """Filter all_nodes to only those the player has discovered.
+
+    A node counts as discovered if EITHER:
+      1. An extractor is already placed within extractor_snap_radius of it
+         (player found it and built there), OR
+      2. It falls within the scan radius of any radar tower
+         (player has radar coverage of that area).
+
+    extractor_snap_radius: 1000 uu (10m) is tight enough to avoid false
+    matches between adjacent nodes. Widen if nodes are snapping incorrectly.
+    """
+    result: list[ResourceNode] = []
+    for node in all_nodes:
+        # Check 1: existing extractor near this node
+        for ext in extractors:
+            if _dist2d(node.x, node.y, ext.x, ext.y) <= extractor_snap_radius:
+                result.append(node)
+                break
+        else:
+            # Check 2: inside a radar tower's scan radius
+            for tower in towers:
+                if _dist2d(node.x, node.y, tower.x, tower.y) <= tower.scan_radius:
+                    result.append(node)
+                    break
+
+    return result
 
 
 def availability_check(frm_host: str = "localhost", frm_port: int = 8080) -> dict[str, bool]:

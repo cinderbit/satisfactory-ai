@@ -31,9 +31,10 @@ from typing import Optional
 
 from recipe_planner import load_recipes, plan, format_plan, PlanResult
 from factory_geometry import MACHINE_CONFIG, row_footprint, port_variant_index
-from world_state import FRMClient, availability_check
+from world_state import FRMClient, availability_check, discovered_nodes
 from siting import find_site, format_site, SiteReport
 from miner_planner import plan_miners, format_miner_plan, MinerPlan
+from mod_interface import ModClient, build_request
 
 # ---------------------------------------------------------------------------
 # Natural-language parse: item name + rate
@@ -190,6 +191,9 @@ def run_advisor(
     frm_port: int,
     prefer_alternate: set[str],
     miner_tier: Optional[int] = None,
+    mod_host: Optional[str] = None,
+    mod_port: int = 8082,
+    write_blueprint: bool = False,
     non_interactive: bool = False,
 ) -> None:
     print(f"\n[Advisor] Parsing: {command!r}")
@@ -248,8 +252,16 @@ def run_advisor(
                 else:
                     print(f"          Using specified miner tier: Mk{effective_tier}")
 
-                nodes = frm.resource_nodes()
-                print(f"          {len(nodes)} nodes found.")
+                all_nodes = frm.resource_nodes()
+                towers = frm.radar_towers()
+                extractors = frm.placed_extractors()
+                nodes = discovered_nodes(all_nodes, extractors, towers)
+                print(f"          {len(all_nodes)} total nodes, "
+                      f"{len(nodes)} discovered "
+                      f"({len(extractors)} with extractors, {len(towers)} radar towers).")
+                if not nodes:
+                    print("[Warning] No discovered nodes found. "
+                          "Place a radar tower or build a miner to mark nodes as discovered.")
                 site = find_site(
                     bom=result.bom,
                     nodes=nodes,
@@ -275,8 +287,11 @@ def run_advisor(
 
     # Approval gate
     print("\n" + "=" * 60)
+    if mod_host:
+        print(f"  yes    — POST to forked FactorySpawner at {mod_host}:{mod_port}")
+    else:
+        print("  yes    — print token rows + manual paste command")
     print("Approve this plan?  [yes / no / modify]")
-    print("  yes    — output token rows / spawner command")
     print("  no     — abort")
     print("  modify — re-enter a new command")
     print("=" * 60)
@@ -297,10 +312,34 @@ def run_advisor(
 
     if answer.startswith("m"):
         new_cmd = input("New command: ").strip()
-        run_advisor(new_cmd, recipes_path, frm_host, frm_port, prefer_alternate, miner_tier)
+        run_advisor(new_cmd, recipes_path, frm_host, frm_port, prefer_alternate,
+                    miner_tier, mod_host, mod_port, write_blueprint)
         return
 
-    # Approved — emit tokens
+    # Approved
+    if mod_host and site:
+        # Step 5 path: POST directly to the forked mod
+        mod = ModClient(mod_host, mod_port)
+        if not mod.health():
+            print(f"\n[Warning] Forked FactorySpawner not reachable at {mod_host}:{mod_port}.")
+            print("          Falling back to manual paste command.")
+            _print_manual(result, miner_plan)
+        else:
+            req = build_request(
+                result=result,
+                miner_plan=miner_plan,
+                origin_x=site.center_x,
+                origin_y=site.center_y,
+                origin_z=site.center_z,
+                write_blueprint=write_blueprint,
+            )
+            mod.send_and_report(req)
+    else:
+        # Step 4 path: print tokens + manual paste command
+        _print_manual(result, miner_plan)
+
+
+def _print_manual(result: PlanResult, miner_plan: Optional[MinerPlan]) -> None:
     print("\n[Advisor] APPROVED. Token rows (JSON):\n")
     print(format_tokens(result, miner_plan))
     print("\nFactorySpawner command (paste in-game chat):\n")
@@ -328,6 +367,13 @@ def main() -> None:
     parser.add_argument("--miner-tier", type=int, default=None, choices=[1, 2, 3],
                         metavar="TIER",
                         help="Override miner tier (1/2/3). Default: auto-detected from FRM.")
+    parser.add_argument("--mod-host", metavar="HOST",
+                        help="Host running the forked FactorySpawner HTTP listener (Step 5). "
+                             "Omit to use manual paste mode.")
+    parser.add_argument("--mod-port", type=int, default=8082, metavar="PORT",
+                        help="FactorySpawner HTTP listener port (default 8082)")
+    parser.add_argument("--blueprint", action="store_true",
+                        help="Ask the mod to write a Blueprint instead of placing directly")
     parser.add_argument("--yes", action="store_true",
                         help="Non-interactive: auto-approve and print tokens")
     args = parser.parse_args()
@@ -347,6 +393,9 @@ def main() -> None:
         frm_port=args.frm_port,
         prefer_alternate=set(args.alternate),
         miner_tier=args.miner_tier,
+        mod_host=args.mod_host,
+        mod_port=args.mod_port,
+        write_blueprint=args.blueprint,
         non_interactive=args.yes,
     )
 
