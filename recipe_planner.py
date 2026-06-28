@@ -99,11 +99,12 @@ class Recipe:
 @dataclass
 class TokenRow:
     machine_type: str
-    recipe_name: str
+    recipe_name: str         # display name, e.g. "Iron Rod"
     count: int
     target_rate: float       # /min requested of this stage
     actual_rate: float       # /min produced (count * per_machine_rate)
     overproduction: float    # actual - target
+    recipe_class: str = ""   # recipe ClassName, e.g. "Recipe_IronRod_C"
 
 
 @dataclass
@@ -267,6 +268,7 @@ def plan(
             target_rate=demand[item],
             actual_rate=actual,
             overproduction=actual - demand[item],
+            recipe_class=recipe.class_name,
         ))
 
     return PlanResult(
@@ -305,6 +307,11 @@ def format_plan(result: PlanResult, target_item: str, target_rate: float) -> str
 
 if __name__ == "__main__":
     import sys
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8")  # Windows cp1252 can't encode →
+        except (AttributeError, ValueError):
+            pass
     if len(sys.argv) < 4:
         print("Usage: recipe_planner.py <recipes.json> <ItemClassName> <rate/min>")
         sys.exit(1)

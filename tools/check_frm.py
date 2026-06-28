@@ -43,10 +43,11 @@ def probe(host: str, port: int) -> bool:
     print(f"Probing FRM at {base}\n" + "=" * 50)
 
     endpoints = {
-        "/frm/resourcenode": ("resource nodes", ["ResourceClass/resource_class",
-                                                 "Purity/purity", "location.x/X"]),
-        "/frm/radartower":   ("radar towers", ["location.x/X", "ScanRadius/scan_radius"]),
-        "/frm/factory":      ("buildings", ["ClassName/className", "location.x/X"]),
+        "/getResourceNode": ("resource nodes", ["ClassName", "Purity", "Exploited", "location.x"]),
+        "/getExtractor":    ("placed miners/extractors", ["ClassName", "location.x"]),
+        "/getRadarTower":   ("radar towers", ["location.x"]),
+        "/getFactory":      ("production buildings", ["ClassName", "location.x"]),
+        "/getStorageInv":   ("storage containers", ["ClassName", "Inventory[].ClassName"]),
     }
 
     for path, (label, expected) in endpoints.items():
@@ -94,7 +95,7 @@ def probe(host: str, port: int) -> bool:
         ok = False
 
     print("\n" + "=" * 50)
-    print("RESULT:", "FRM looks usable ✓" if ok else "issues found — see warnings above ✗")
+    print("RESULT:", "[PASS] FRM looks usable" if ok else "[FAIL] issues found — see warnings above")
     return ok
 
 

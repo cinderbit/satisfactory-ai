@@ -172,12 +172,43 @@ def format_tokens(result: PlanResult, miner_plan: Optional[MinerPlan] = None) ->
     return json.dumps(tokens, indent=2)
 
 
+# Machine enum -> upstream FactorySpawner machine token (only divergence).
+# FactorySpawner v2.3.0 accepts: Smelter, Constructor, Assembler, Foundry,
+# Manufacturer, Refinery, Blender, Packager, Converter, ParticleAccelerator,
+# QuantumEncoder, CoalGenerator, FuelGenerator, NuclearReactor.
+_SPAWNER_MACHINE = {"OilRefinery": "Refinery"}
+
+
+def _spawner_recipe_token(recipe_class: str, recipe_name: str) -> str:
+    """Derive FactorySpawner's recipe token from the recipe ClassName.
+
+    FactorySpawner names recipes by class minus the Recipe_/_C wrapper, e.g.
+    Recipe_IngotIron_C -> "IngotIron", Recipe_IronRod_C -> "IronRod".
+    Falls back to the spaces-stripped display name if no class is available.
+    """
+    if recipe_class:
+        tok = recipe_class
+        if tok.startswith("Recipe_"):
+            tok = tok[len("Recipe_"):]
+        if tok.endswith("_C"):
+            tok = tok[:-len("_C")]
+        return tok
+    return recipe_name.replace(" ", "")
+
+
 def format_spawner_command(result: PlanResult) -> str:
-    """Format as a /FactorySpawner chat command for manual pasting (step-4 milestone)."""
-    parts = []
+    """Format an upstream FactorySpawner v2.3.0 chat command.
+
+    Syntax: /FactorySpawner {count} {machine} {recipe}, {count} {machine} {recipe}
+    (rows comma-separated). Covers manufacturing machines only — FactorySpawner
+    does not place miners/extractors, so those stay in the printed miner plan.
+    """
+    rows = []
     for row in result.token_rows:
-        parts.append(f"{row.count}x{row.machine_type}:{row.recipe_name}")
-    return "/FactorySpawner " + " ".join(parts)
+        machine = _SPAWNER_MACHINE.get(row.machine_type, row.machine_type)
+        recipe = _spawner_recipe_token(row.recipe_class, row.recipe_name)
+        rows.append(f"{row.count} {machine} {recipe}")
+    return "/FactorySpawner " + ", ".join(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -352,6 +383,14 @@ def _print_manual(result: PlanResult, miner_plan: Optional[MinerPlan]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    # Windows consoles default to cp1252, which can't encode the plan's arrows
+    # (→) and other glyphs. Force UTF-8 output where supported.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")
+        except (AttributeError, ValueError):
+            pass
+
     parser = argparse.ArgumentParser(
         description="Satisfactory AI factory advisor — plans a production chain and waits for approval."
     )

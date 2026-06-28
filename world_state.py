@@ -47,6 +47,8 @@ class ResourceNode:
     x: float             # world X (Unreal units)
     y: float             # world Y
     z: float             # world Z
+    exploited: bool = False   # FRM: a miner/extractor is already on this node
+    name: str = ""            # FRM display name, e.g. "Iron Ore"
 
 
 @dataclass
@@ -104,9 +106,11 @@ def _post(url: str, body: dict, timeout: int = 10, verify_ssl: bool = True) -> A
 class FRMClient:
     """Thin client for the Ficsit Remote Monitoring HTTP API.
 
-    Default port is 8080 (FRM default).  Probe /frm/resourcesink for a
-    health check; resource nodes are at /frm/resourcenode (verify against
-    your actual FRM version — see VERIFY_FIRST.md).
+    Default port is 8080 (FRM default). Endpoint paths and field names below
+    are verified against a live FRM (Satisfactory 1.x): the API uses
+    /getResourceNode, /getExtractor, /getFactory, /getStorageInv, etc., each
+    returning a JSON list of objects with PascalCase fields and a lowercase
+    ``location`` {x,y,z}.
     """
 
     def __init__(self, host: str = "localhost", port: int = 8080,
@@ -118,107 +122,124 @@ class FRMClient:
     def _get(self, path: str) -> Any:
         return _get(f"{self.base}{path}", self.timeout, self.verify_ssl)
 
-    def resource_nodes(self) -> list[ResourceNode]:
-        """Return all resource extraction nodes in the world."""
-        raw = self._get("/frm/resourcenode")
+    def resource_nodes(self, include_wells: bool = True) -> list[ResourceNode]:
+        """Return all resource extraction nodes in the world.
+
+        FRM endpoint ``/getResourceNode`` covers solid miner nodes plus crude
+        oil. ``/getResourceWell`` covers fluid resource-well satellites
+        (nitrogen/water/oil wells); included by default since the planner
+        treats those resources as raw leaves too.
+        """
+        raw = list(self._get("/getResourceNode") or [])
+        if include_wells:
+            try:
+                raw += list(self._get("/getResourceWell") or [])
+            except Exception:
+                pass
         nodes: list[ResourceNode] = []
         for entry in raw:
-            # Field names verified from FRM source; update if your version differs
-            item_class = entry.get("ResourceClass") or entry.get("resource_class", "")
-            purity_str = entry.get("Purity") or entry.get("purity", "normal")
-            loc = entry.get("location") or entry.get("Location") or {}
-            x = float(loc.get("x", loc.get("X", 0)))
-            y = float(loc.get("y", loc.get("Y", 0)))
-            z = float(loc.get("z", loc.get("Z", 0)))
+            item_class = entry.get("ClassName", "")
+            purity_str = entry.get("Purity", "Normal")
+            loc = entry.get("location") or {}
             nodes.append(ResourceNode(
                 item_class=item_class,
                 purity=Purity.from_str(str(purity_str)),
-                x=x, y=y, z=z,
+                x=float(loc.get("x", 0)),
+                y=float(loc.get("y", 0)),
+                z=float(loc.get("z", 0)),
+                exploited=bool(entry.get("Exploited", False)),
+                name=entry.get("Name", ""),
             ))
         return nodes
 
     def player_inventory(self) -> list[StorageItem]:
-        """Return items in the local player's inventory."""
-        raw = self._get("/frm/player")
+        """Return items in the local player(s) inventory (FRM /getPlayer)."""
+        raw = self._get("/getPlayer") or []
         items: list[StorageItem] = []
         for entry in raw:
-            inv = entry.get("Inventory", [])
-            for slot in inv:
-                ic = slot.get("ItemClass") or slot.get("item_class", "")
-                amt = float(slot.get("Amount") or slot.get("amount", 0))
+            for slot in entry.get("Inventory", []) or []:
+                ic = slot.get("ClassName", "")
+                amt = float(slot.get("Amount", 0))
                 if ic:
                     items.append(StorageItem(item_class=ic, amount=amt))
         return items
 
     def storage_contents(self) -> list[StorageItem]:
-        """Return aggregate contents across all storage containers FRM tracks."""
-        raw = self._get("/frm/storagecontainer")
+        """Return aggregate contents across all storage containers (FRM
+        /getStorageInv). Each container carries an ``Inventory`` list of
+        {ClassName, Amount} slots."""
+        raw = self._get("/getStorageInv") or []
         items: list[StorageItem] = []
         for container in raw:
-            for slot in container.get("Inventory", []):
-                ic = slot.get("ItemClass", "")
+            for slot in container.get("Inventory", []) or []:
+                ic = slot.get("ClassName", "")
                 amt = float(slot.get("Amount", 0))
                 if ic and amt > 0:
                     items.append(StorageItem(item_class=ic, amount=amt))
+        return items
+
+    def world_inventory(self) -> list[StorageItem]:
+        """Return FRM's aggregated world inventory (/getWorldInv): a flat list
+        of {ClassName, Amount} totals across tracked storage."""
+        raw = self._get("/getWorldInv") or []
+        items: list[StorageItem] = []
+        for slot in raw:
+            ic = slot.get("ClassName", "")
+            amt = float(slot.get("Amount", 0))
+            if ic:
+                items.append(StorageItem(item_class=ic, amount=amt))
         return items
 
     def radar_towers(self, default_radius: float = 150_000.0) -> list[RadarTower]:
         """Return all radar towers placed in the world.
 
         Radar tower scan radius in Satisfactory is approximately 1500m (150,000 uu).
-        Verify this against your build — the radius may differ by version.
-        FRM endpoint: /frm/radartower (verify field names against your version).
+        FRM endpoint: /getRadarTower. (FRM does not expose a per-tower scan
+        radius, so default_radius is used for all towers.)
         """
         try:
-            raw = self._get("/frm/radartower")
+            raw = self._get("/getRadarTower") or []
         except Exception:
             return []
         towers: list[RadarTower] = []
         for entry in raw:
-            loc = entry.get("location") or entry.get("Location") or {}
-            x = float(loc.get("x", loc.get("X", 0)))
-            y = float(loc.get("y", loc.get("Y", 0)))
-            z = float(loc.get("z", loc.get("Z", 0)))
-            radius = float(
-                entry.get("ScanRadius") or entry.get("scan_radius") or default_radius
-            )
-            towers.append(RadarTower(x=x, y=y, z=z, scan_radius=radius))
+            loc = entry.get("location") or {}
+            towers.append(RadarTower(
+                x=float(loc.get("x", 0)),
+                y=float(loc.get("y", 0)),
+                z=float(loc.get("z", 0)),
+                scan_radius=float(entry.get("ScanRadius", default_radius) or default_radius),
+            ))
         return towers
 
     def placed_extractors(self) -> list[PlacedExtractor]:
         """Return all miners and extractors already built in the world.
 
-        Used to identify nodes that have been found and developed, and to
-        infer the highest unlocked miner tier.
+        FRM exposes these on a dedicated ``/getExtractor`` endpoint (miners,
+        water extractors, oil pumps, resource-well extractors) — distinct from
+        production buildings on ``/getFactory``.
         """
-        buildings = self.placed_buildings()
         extractors: list[PlacedExtractor] = []
-        extractor_keywords = ("Miner", "WaterExtractor", "ResourceExtractor",
-                              "OilPump", "FrackingExtractor")
-        for b in buildings:
-            cls = (
-                b.get("ClassName") or b.get("className") or
-                b.get("BuildingType") or b.get("building_type") or ""
-            )
-            if any(k in cls for k in extractor_keywords):
-                loc = b.get("location") or b.get("Location") or {}
-                x = float(loc.get("x", loc.get("X", 0)))
-                y = float(loc.get("y", loc.get("Y", 0)))
-                z = float(loc.get("z", loc.get("Z", 0)))
-                extractors.append(PlacedExtractor(class_name=cls, x=x, y=y, z=z))
+        for b in self._get_list("/getExtractor"):
+            cls = b.get("ClassName", "")
+            loc = b.get("location") or {}
+            extractors.append(PlacedExtractor(
+                class_name=cls,
+                x=float(loc.get("x", 0)),
+                y=float(loc.get("y", 0)),
+                z=float(loc.get("z", 0)),
+            ))
         return extractors
 
-    def placed_buildings(self) -> list[dict]:
-        """Return all buildable actors FRM knows about.
-
-        Used to infer unlocked tiers from what's already built in the world.
-        FRM endpoint: /frm/factory (returns all production buildings).
-        Field names are best-effort — verify against your FRM version.
-        """
+    def _get_list(self, path: str) -> list[dict]:
         try:
-            return self._get("/frm/factory") or []
+            return self._get(path) or []
         except Exception:
             return []
+
+    def placed_buildings(self) -> list[dict]:
+        """Return all production buildings FRM knows about (/getFactory)."""
+        return self._get_list("/getFactory")
 
     def detect_miner_tier(self) -> int:
         """Scan placed buildings to find the highest miner tier in the world.
@@ -231,13 +252,9 @@ class FRMClient:
         Returns 1, 2, or 3.  Falls back to 1 if nothing is found (safest
         assumption — never suggests a machine the player might not have).
         """
-        buildings = self.placed_buildings()
         highest = 1
-        for b in buildings:
-            cls = (
-                b.get("ClassName") or b.get("className") or
-                b.get("BuildingType") or b.get("building_type") or ""
-            )
+        for ext in self.placed_extractors():
+            cls = ext.class_name
             if "MinerMk3" in cls or "Miner_Mk3" in cls:
                 return 3
             if "MinerMk2" in cls or "Miner_Mk2" in cls:
@@ -300,17 +317,20 @@ def discovered_nodes(
 ) -> list[ResourceNode]:
     """Filter all_nodes to only those the player has discovered.
 
-    A node counts as discovered if EITHER:
-      1. An extractor is already placed within extractor_snap_radius of it
-         (player found it and built there), OR
-      2. It falls within the scan radius of any radar tower
-         (player has radar coverage of that area).
+    A node counts as discovered if ANY of:
+      0. FRM marks it Exploited (a miner/extractor already sits on it), OR
+      1. An extractor is placed within extractor_snap_radius of it, OR
+      2. It falls within the scan radius of any radar tower.
 
     extractor_snap_radius: 1000 uu (10m) is tight enough to avoid false
     matches between adjacent nodes. Widen if nodes are snapping incorrectly.
     """
     result: list[ResourceNode] = []
     for node in all_nodes:
+        # Check 0: FRM already flags the node as exploited
+        if getattr(node, "exploited", False):
+            result.append(node)
+            continue
         # Check 1: existing extractor near this node
         for ext in extractors:
             if _dist2d(node.x, node.y, ext.x, ext.y) <= extractor_snap_radius:
@@ -330,7 +350,7 @@ def availability_check(frm_host: str = "localhost", frm_port: int = 8080) -> dic
     """Quick liveness probe for use in the advisor CLI."""
     results: dict[str, bool] = {}
     try:
-        _get(f"http://{frm_host}:{frm_port}/frm/resourcenode", timeout=3)
+        _get(f"http://{frm_host}:{frm_port}/getResourceNode", timeout=3)
         results["frm"] = True
     except Exception:
         results["frm"] = False
