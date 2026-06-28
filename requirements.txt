@@ -1,0 +1,5 @@
+# No third-party dependencies — stdlib only (Python 3.10+).
+# Optional extras for future work:
+#   requests    — drop-in replacement for urllib if preferred
+#   rich        — prettier terminal output
+#   pytest      — test runner
