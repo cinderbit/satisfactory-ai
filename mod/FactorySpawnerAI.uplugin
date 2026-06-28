@@ -1,0 +1,33 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"SemVersion": "0.1.0",
+	"FriendlyName": "Factory Spawner AI",
+	"Description": "Fork of FactorySpawner (Simon Steinhauser, MIT) that replaces the chat-command parser with an HTTP listener, places factories at AI-computed coordinates, and spawns miners/extractors on discovered nodes. Driven by the satisfactory-ai Python advisor.",
+	"Category": "Modding",
+	"CreatedBy": "satisfactory-ai (forked from Simon Steinhauser)",
+	"CreatedByURL": "https://github.com/cinderbit/satisfactory-ai",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "FactorySpawnerAI",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	],
+	"Plugins": [
+		{
+			"Name": "SML",
+			"Enabled": true,
+			"SemVersion": "^3.12.0"
+		}
+	],
+	"GameVersion": "1.2"
+}
