@@ -1,0 +1,71 @@
+[
+  {
+    "ClassName": "Recipe_IronIngot_C",
+    "DisplayName": "Iron Ingot",
+    "Ingredients": [{ "Item": "Desc_OreIron_C", "Amount": 1 }],
+    "Products": [{ "Item": "Desc_IronIngot_C", "Amount": 1 }],
+    "ManufacturingDuration": 2.0,
+    "ProducedIn": ["Build_SmelterMk1_C"],
+    "IsAlternate": false
+  },
+  {
+    "ClassName": "Recipe_IronRod_C",
+    "DisplayName": "Iron Rod",
+    "Ingredients": [{ "Item": "Desc_IronIngot_C", "Amount": 1 }],
+    "Products": [{ "Item": "Desc_IronRod_C", "Amount": 1 }],
+    "ManufacturingDuration": 4.0,
+    "ProducedIn": ["Build_ConstructorMk1_C"],
+    "IsAlternate": false
+  },
+  {
+    "ClassName": "Recipe_Screw_C",
+    "DisplayName": "Screw",
+    "Ingredients": [{ "Item": "Desc_IronRod_C", "Amount": 1 }],
+    "Products": [{ "Item": "Desc_IronScrew_C", "Amount": 4 }],
+    "ManufacturingDuration": 6.0,
+    "ProducedIn": ["Build_ConstructorMk1_C"],
+    "IsAlternate": false
+  },
+  {
+    "ClassName": "Recipe_Alternate_CastScrew_C",
+    "DisplayName": "Alternate: Cast Screw",
+    "Ingredients": [{ "Item": "Desc_IronIngot_C", "Amount": 5 }],
+    "Products": [{ "Item": "Desc_IronScrew_C", "Amount": 20 }],
+    "ManufacturingDuration": 24.0,
+    "ProducedIn": ["Build_ConstructorMk1_C"],
+    "IsAlternate": true
+  },
+  {
+    "ClassName": "Recipe_IronPlate_C",
+    "DisplayName": "Iron Plate",
+    "Ingredients": [{ "Item": "Desc_IronIngot_C", "Amount": 3 }],
+    "Products": [{ "Item": "Desc_IronPlate_C", "Amount": 2 }],
+    "ManufacturingDuration": 6.0,
+    "ProducedIn": ["Build_ConstructorMk1_C"],
+    "IsAlternate": false
+  },
+  {
+    "ClassName": "Recipe_Concrete_C",
+    "DisplayName": "Concrete",
+    "Ingredients": [{ "Item": "Desc_Stone_C", "Amount": 3 }],
+    "Products": [{ "Item": "Desc_Cement_C", "Amount": 1 }],
+    "ManufacturingDuration": 4.0,
+    "ProducedIn": ["Build_ConstructorMk1_C"],
+    "IsAlternate": false
+  },
+  {
+    "ClassName": "Recipe_AluminaSolution_C",
+    "DisplayName": "Alumina Solution",
+    "Ingredients": [
+      { "Item": "Desc_OreBauxite_C", "Amount": 12 },
+      { "Item": "Desc_Water_C", "Amount": 18000 }
+    ],
+    "Products": [
+      { "Item": "Desc_AluminaSolution_C", "Amount": 12000 },
+      { "Item": "Desc_Silica_C", "Amount": 5 }
+    ],
+    "ManufacturingDuration": 6.0,
+    "ProducedIn": ["Build_OilRefinery_C"],
+    "IsAlternate": false
+  }
+]

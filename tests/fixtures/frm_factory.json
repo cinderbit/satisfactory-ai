@@ -1,0 +1,5 @@
+[
+  { "ClassName": "Build_MinerMk3_C",   "location": { "x": 200050, "y": 10, "z": 100 } },
+  { "ClassName": "Build_SmelterMk1_C", "location": { "x": 1000,   "y": 1000, "z": 0 } },
+  { "ClassName": "Build_ConstructorMk1_C", "location": { "x": 1200, "y": 1000, "z": 0 } }
+]

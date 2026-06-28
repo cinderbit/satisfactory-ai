@@ -1,0 +1,8 @@
+[
+  { "ResourceClass": "Desc_OreIron_C",   "Purity": "pure",   "location": { "x": 5000,   "y": 0,      "z": 100 } },
+  { "ResourceClass": "Desc_OreIron_C",   "Purity": "normal", "location": { "x": 200000, "y": 0,      "z": 100 } },
+  { "ResourceClass": "Desc_OreIron_C",   "Purity": "impure", "location": { "x": 500000, "y": 500000, "z": 100 } },
+  { "ResourceClass": "Desc_Stone_C",     "Purity": "normal", "location": { "x": 3000,   "y": 3000,   "z": 0   } },
+  { "ResourceClass": "Desc_Water_C",     "Purity": "pure",   "location": { "x": 8000,   "y": 1000,   "z": 0   } },
+  { "ResourceClass": "Desc_OreBauxite_C","Purity": "pure",   "location": { "x": -10000, "y": 0,      "z": 0   } }
+]
