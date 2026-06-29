@@ -8,7 +8,7 @@ world_state.FRMClient over real HTTP without the game running.
 Usage (standalone):
     python tests/mock_frm.py 8099
 Then:
-    curl http://localhost:8099/frm/resourcenode
+    curl http://localhost:8099/getResourceNode
 
 Usage (in tests): see MockFRMServer context manager below.
 """
@@ -22,11 +22,13 @@ from pathlib import Path
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
-# Map FRM path -> fixture file
+# Map FRM path -> fixture file (real FRM API endpoints)
 ROUTES = {
-    "/frm/resourcenode": "frm_resourcenode.json",
-    "/frm/radartower":   "frm_radartower.json",
-    "/frm/factory":      "frm_factory.json",
+    "/getResourceNode": "frm_resourcenode.json",
+    "/getResourceWell": "frm_resourcewell.json",
+    "/getRadarTower":   "frm_radartower.json",
+    "/getExtractor":    "frm_extractor.json",
+    "/getFactory":      "frm_factory.json",
 }
 
 

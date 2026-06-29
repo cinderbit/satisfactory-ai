@@ -35,6 +35,7 @@ from world_state import FRMClient, availability_check, discovered_nodes
 from siting import find_site, format_site, SiteReport
 from miner_planner import plan_miners, format_miner_plan, MinerPlan
 from mod_interface import ModClient, build_request
+from blueprint_planner import format_command, format_blueprint_plan, rows_from_plan
 
 # ---------------------------------------------------------------------------
 # Natural-language parse: item name + rate
@@ -172,43 +173,15 @@ def format_tokens(result: PlanResult, miner_plan: Optional[MinerPlan] = None) ->
     return json.dumps(tokens, indent=2)
 
 
-# Machine enum -> upstream FactorySpawner machine token (only divergence).
-# FactorySpawner v2.3.0 accepts: Smelter, Constructor, Assembler, Foundry,
-# Manufacturer, Refinery, Blender, Packager, Converter, ParticleAccelerator,
-# QuantumEncoder, CoalGenerator, FuelGenerator, NuclearReactor.
-_SPAWNER_MACHINE = {"OilRefinery": "Refinery"}
-
-
-def _spawner_recipe_token(recipe_class: str, recipe_name: str) -> str:
-    """Derive FactorySpawner's recipe token from the recipe ClassName.
-
-    FactorySpawner names recipes by class minus the Recipe_/_C wrapper, e.g.
-    Recipe_IngotIron_C -> "IngotIron", Recipe_IronRod_C -> "IronRod".
-    Falls back to the spaces-stripped display name if no class is available.
-    """
-    if recipe_class:
-        tok = recipe_class
-        if tok.startswith("Recipe_"):
-            tok = tok[len("Recipe_"):]
-        if tok.endswith("_C"):
-            tok = tok[:-len("_C")]
-        return tok
-    return recipe_name.replace(" ", "")
-
-
 def format_spawner_command(result: PlanResult) -> str:
-    """Format an upstream FactorySpawner v2.3.0 chat command.
+    """Single upstream FactorySpawner v2.3.0 chat command for the whole plan.
 
-    Syntax: /FactorySpawner {count} {machine} {recipe}, {count} {machine} {recipe}
-    (rows comma-separated). Covers manufacturing machines only — FactorySpawner
-    does not place miners/extractors, so those stay in the printed miner plan.
+    Syntax: /FactorySpawner {count} {machine} {recipe}, ... (rows comma-separated).
+    Covers manufacturing machines only — FactorySpawner does not place
+    miners/extractors, so those stay in the printed miner plan. Blueprint
+    fit-checking and splitting live in blueprint_planner.
     """
-    rows = []
-    for row in result.token_rows:
-        machine = _SPAWNER_MACHINE.get(row.machine_type, row.machine_type)
-        recipe = _spawner_recipe_token(row.recipe_class, row.recipe_name)
-        rows.append(f"{row.count} {machine} {recipe}")
-    return "/FactorySpawner " + ", ".join(rows)
+    return format_command(rows_from_plan(result))
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +199,7 @@ def run_advisor(
     mod_port: int = 8082,
     write_blueprint: bool = False,
     non_interactive: bool = False,
+    blueprint_tier: Optional[int] = None,
 ) -> None:
     print(f"\n[Advisor] Parsing: {command!r}")
 
@@ -344,7 +318,8 @@ def run_advisor(
     if answer.startswith("m"):
         new_cmd = input("New command: ").strip()
         run_advisor(new_cmd, recipes_path, frm_host, frm_port, prefer_alternate,
-                    miner_tier, mod_host, mod_port, write_blueprint)
+                    miner_tier, mod_host, mod_port, write_blueprint,
+                    blueprint_tier=blueprint_tier)
         return
 
     # Approved
@@ -354,7 +329,7 @@ def run_advisor(
         if not mod.health():
             print(f"\n[Warning] Forked FactorySpawner not reachable at {mod_host}:{mod_port}.")
             print("          Falling back to manual paste command.")
-            _print_manual(result, miner_plan)
+            _print_manual(result, miner_plan, blueprint_tier)
         else:
             req = build_request(
                 result=result,
@@ -367,14 +342,16 @@ def run_advisor(
             mod.send_and_report(req)
     else:
         # Step 4 path: print tokens + manual paste command
-        _print_manual(result, miner_plan)
+        _print_manual(result, miner_plan, blueprint_tier)
 
 
-def _print_manual(result: PlanResult, miner_plan: Optional[MinerPlan]) -> None:
+def _print_manual(result: PlanResult, miner_plan: Optional[MinerPlan],
+                  blueprint_tier: Optional[int] = None) -> None:
     print("\n[Advisor] APPROVED. Token rows (JSON):\n")
     print(format_tokens(result, miner_plan))
-    print("\nFactorySpawner command (paste in-game chat):\n")
-    print(format_spawner_command(result))
+    print("\nFactorySpawner creates a Blueprint named 'FactorySpawner' — paste in")
+    print("chat, then open your blueprint menu and stamp it:\n")
+    print(format_blueprint_plan(result, blueprint_tier))
     print()
 
 
@@ -413,6 +390,11 @@ def main() -> None:
                         help="FactorySpawner HTTP listener port (default 8082)")
     parser.add_argument("--blueprint", action="store_true",
                         help="Ask the mod to write a Blueprint instead of placing directly")
+    parser.add_argument("--blueprint-tier", type=int, default=None, choices=[1, 2, 3],
+                        metavar="TIER",
+                        help="Force splitting the FactorySpawner blueprint to fit a "
+                             "Mk1/2/3 Blueprint Designer. Default: one command if it "
+                             "fits any designer, else auto-split for Mk3.")
     parser.add_argument("--yes", action="store_true",
                         help="Non-interactive: auto-approve and print tokens")
     args = parser.parse_args()
@@ -436,6 +418,7 @@ def main() -> None:
         mod_port=args.mod_port,
         write_blueprint=args.blueprint,
         non_interactive=args.yes,
+        blueprint_tier=args.blueprint_tier,
     )
 
 

@@ -3,3 +3,6 @@ __pycache__/
 *.pyo
 .env
 recipes.json
+
+# Session artifact from FRM factory diffing
+.baseline_factory.json
